@@ -1,0 +1,11 @@
+$rimmepica_page_general	全般
+$rimmepica_header_main	基本
+$rimmepica_enabled	rim-mepica を有効にする
+$rimmepica_enabled_info	オンの間、プレイヤーの目のそばに残った光を一定間隔で消します。
+$rimmepica_interval	確認の間隔
+$rimmepica_interval_info	光を消す処理を行う間隔（秒）。短いほど早く消えます。10 秒で十分です。
+$rimmepica_header_manual	手動
+$rimmepica_clear_now	今すぐ目の光を消す
+$rimmepica_clear_now_info	次の確認を待たずに、いますぐ光を消します。MOD をオフにしていても使えます。
+$rimmepica_cleared	目の光を消しました。
+$rimmepica_ok	OK

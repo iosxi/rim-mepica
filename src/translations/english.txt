@@ -1,0 +1,11 @@
+$rimmepica_page_general	General
+$rimmepica_header_main	General
+$rimmepica_enabled	Enable rim-mepica
+$rimmepica_enabled_info	While on, the eye glow stuck on the player is cleared at regular intervals.
+$rimmepica_interval	Check interval
+$rimmepica_interval_info	Seconds between checks. Shorter clears the glow sooner; 10 seconds is plenty.
+$rimmepica_header_manual	Manual
+$rimmepica_clear_now	Clear the eye glow now
+$rimmepica_clear_now_info	Clear the glow right now, without waiting for the next check. Works even while the mod is turned off.
+$rimmepica_cleared	The eye glow has been cleared.
+$rimmepica_ok	OK
