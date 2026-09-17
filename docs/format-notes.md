@@ -1,10 +1,137 @@
-# Where the plugin layout came from
+# プラグインの構造の出どころ / Where the plugin layout came from
+
+> **English version below.** This document is in Japanese first, followed by
+> the same content in English — see [English](#english).
+
+## 日本語
+
+`tools/build_esp.py` は、Creation Kit を使わずに `rim-mepica.esp` を手で組み立てて
+います。そのため、中のすべてのフィールドに理由が必要です。ここにはその値の根拠を
+まとめます。どれも記憶からではなく、この PC 上のファイルから読み取ったものです。
+
+### 参考にしたプラグイン
+
+ゲームが実際に読み込んでいる MCM 付きプラグインを `tools/espdump.py` で解読して、
+構造を割り出しました。
+
+| プラグイン | 役に立った点 |
+| --- | --- |
+| `PhotoMode.esp` | 最小の例。クエスト 1 つ、スクリプト 1 つ、プロパティなし。VMAD を解析すると 73 バイトをちょうど読み切るので、構造全体がこれで確定する。 |
+| `SmoothCam.esp`, `BetterThirdPersonSelection.esp` | `ModName` 文字列プロパティと 2 つ目のマスターがあっても、同じ形であることを確認できる。 |
+| `SkyClimb.esp` | エイリアスにスクリプトが 2 つ付いた場合のエイリアス部分を確認できる。 |
+
+`rim-mepica.esp` を解析すると `PhotoMode.esp` と同じ構造になり、違うのは名前と
+長さだけです。
+
+### QUST の VMAD
+
+サブレコードの中身は、順に次のとおりです。
+
+```
+int16   version            = 5
+int16   objectFormat       = 2
+uint16  scriptCount        = 1
+  wstring scriptName       = "rimmepica_MCM"
+  uint8   status           = 0
+  uint16  propertyCount    = 0
+uint8   fragmentSectionVersion = 2
+uint16  fragmentCount      = 0
+wstring fragmentFileName   = ""
+uint16  aliasCount         = 1
+  uint16 unused            = 0        \
+  int16  aliasIndex        = 0         | object union, objectFormat 2
+  uint32 formId            = quest id  /
+  int16  version           = 5
+  int16  objectFormat      = 2
+  uint16 scriptCount       = 1
+    wstring scriptName     = "SKI_PlayerLoadGameAlias"
+    uint8   status         = 0
+    uint16  propertyCount  = 0
+```
+
+object union のフィールドの順番（`unused`、`aliasIndex`、`formId` の順で、逆では
+ない）は、`Hotkey Quit.esp` の最後のプロパティで確定しました。そのバイト列は
+`00 00 FF FF 14 00 00 00` で、意味が通る読み方は「エイリアス `-1`、フォーム
+`0x14`（つまり `PlayerRef`）」しかありません。
+
+### その他のフィールド
+
+- **TES4 フラグ `0x200`** は軽量プラグイン（ESL）の印です。255 個のプラグイン枠を
+  使いません。参考にした 4 つのプラグインはすべてこれを立てています。
+- **レコードのフォームバージョン 44** は、Skyrim SE がレコードに付ける値です。
+- **FormID `0x01000800`。** 先頭のバイトはプラグインのマスター一覧の番号で、
+  マスターの数と同じ値は「このファイル自身」を意味します。マスターが 1 つなので
+  `0x01` です。軽量プラグインでは、オブジェクト番号を `0x800`〜`0xFFF` の範囲に
+  収める必要があります。
+- **`DNAM` = `11 01 00 FF 00…`** は、フラグ `0x0111`（ゲーム開始時に有効・1 回だけ
+  実行）、優先度 0 です。`PhotoMode.esp` からそのまま写したもので、`SmoothCam.esp`
+  とも一致します。
+- **`ALFR` = `0x00000014`** は `Skyrim.esm` の `PlayerRef` です。`Skyrim.esm` は
+  このプラグインのマスター一覧の 0 番なので、ID を付け替える必要はありません。
+
+### そもそもエイリアスが要る理由
+
+クエストは、セーブがロードされたことを知ってタイマーを再開する必要があります。
+`ski_playerloadgamealias.pex` を解読すると、このスクリプトがやっていることは
+1 つだけでした。`OnPlayerLoadGame` で `GetOwningQuest()` を呼び、
+`SKI_QuestBase` にキャストして、その `OnGameReload()` を呼びます。
+
+ここが大事なのは、通知が届くのが**自分のクエストだけ**だからです。SkyUI はこの
+イベントを他の MOD に配ってはくれません。つまり、このプラグイン自身がその
+エイリアススクリプトを付けない限り、`rimmepica_MCM` の `OnGameReload()` は
+呼ばれません。調べた MCM プラグインはどれも同じことをしています。
+
+### SkyUI のスタブ
+
+SkyUI はコンパイル済みのスクリプトしか配布していませんが、Papyrus コンパイラーは
+継承元すべてのソースを必要とします。`tools/pex2psc.py` は `SkyUI_SE.bsa` から直接
+宣言を復元するので、関数の形は、どこかから写したヘッダーではなく、実際に入っている
+SkyUI のものと一致します。スタブの中身は空で、配布もしません。ゲーム中に読み込まれる
+のは SkyUI 本物のスクリプトです。
+
+Skyrim の `.pex` ファイルは、プラグインと違って**ビッグエンディアン**です。関数
+レコードの中の `numInstructions` は `uint16` で、`VariableData` の型タグは `0` null、
+`1` 識別子、`2` 文字列、`3` int32、`4` float、`5` bool です。
+
+### 目の光のエフェクト
+
+スクリプトは、次の `VisualEffect`（`RFCT`）レコードをプレイヤーから止めます。
+この一覧は、3 つのマスターファイルの `RFCT` レコードをすべて調べ、エディター ID に
+「eye」を含むものを残して作りました。`Dragonborn.esm` には該当がありません。
+
+| ファイル | FormID | エディター ID | 再生しているスクリプト |
+| --- | --- | --- | --- |
+| `Skyrim.esm` | `000A8527` | `FXDraugrFemaleEyeEffect` | `DraugrFXScript`, `FxDraugrMagicScript` |
+| `Skyrim.esm` | `000ABEE8` | `FXDraugrMaleEyeEffect` | `DraugrFXScript`, `FxDraugrMagicScript` |
+| `Skyrim.esm` | `000AA856` | `FXDragonPreistEyeGlowEffect` | `DragonPriestActorScript` |
+| `Skyrim.esm` | `000EB87A` | `FXSkeletonNecroEyeGlowEffect` | `FXSkeletonNecroScript` |
+| `Skyrim.esm` | `000EBE9E` | `FXSkeletonNecroPriestEyeGlowEffect` | （死霊術師プリーストの派生版） |
+| `Skyrim.esm` | `000F9065` | `FXMG07DogEyeGlowEffect` | `FXMG07DogScript` |
+| `Dawnguard.esm` | `02006AF4` | `DLC1SoulCairnFXSkeletonNecroEyeGlowEffect` | `DLC1SoulCairnCreatureFX` |
+
+`Game.GetFormFromFile` にはロードオーダーのバイトを除いた ID を渡すので、
+Dawnguard の分は `0x00006AF4` として渡しています。
+
+これらのスクリプトはどれも `ActiveMagicEffect` で、`selfRef = caster` としたうえで
+`EyeGlowFX.Play(selfRef, -1)` を実行します。負の再生時間は「無期限」の意味で、
+対応する `Stop` は `OnDying` / `OnDeath` / `OnEffectFinish` でしか呼ばれません。
+ゲーム側が `caster` としてプレイヤーを渡すと、光はプレイヤーに付き、それを消す
+処理はどこにもありません。エフェクトはその敵の目のノードの位置に置かれるので、
+プレイヤー本人の目からはズレて浮きます。
+
+再生されていないエフェクトに `Stop` を呼んでも害はありません。バニラの
+`DLC1SoulCairnCreatureFX` 自身が、眠っている敵に対して一度も再生していない
+`FXSCCreatureMultiEffect` の `Stop(selfRef)` を呼んでいます。
+
+---
+
+## English
 
 `tools/build_esp.py` writes `rim-mepica.esp` by hand rather than through the
 Creation Kit, so every field in it needs a reason. These are the notes behind
 those values; they were read out of files on this machine, not from memory.
 
-## Reference plugins
+### Reference plugins
 
 The layout was derived by decoding MCM plugins that the game already loads,
 using `tools/espdump.py`:
@@ -18,7 +145,7 @@ using `tools/espdump.py`:
 `rim-mepica.esp` parses to the same structure as `PhotoMode.esp`, differing only
 in names and lengths.
 
-## QUST VMAD
+### QUST VMAD
 
 The subrecord is, in order:
 
@@ -49,7 +176,7 @@ way round) was settled by the last property in `Hotkey Quit.esp`: its bytes are
 `00 00 FF FF 14 00 00 00`, which only reads sensibly as alias `-1` and form
 `0x14`, i.e. `PlayerRef`.
 
-## Other fields
+### Other fields
 
 - **TES4 flag `0x200`** marks the file as a light plugin, so it takes no slot in
   the 255-plugin load order. All four reference plugins set it.
@@ -63,11 +190,11 @@ way round) was settled by the last property in `Hotkey Quit.esp`: its bytes are
 - **`ALFR` = `0x00000014`** is `PlayerRef` in `Skyrim.esm`, which sits at index 0
   of our master list, so the ID needs no remapping.
 
-## Why an alias at all
+### Why an alias at all
 
 The quest needs to know when a save has been loaded, so it can restart its
-polling loop. Decoding `ski_playerloadgamealias.pex` shows the script does
-exactly one thing: on `OnPlayerLoadGame` it calls `GetOwningQuest()`, casts to
+timer. Decoding `ski_playerloadgamealias.pex` shows the script does exactly one
+thing: on `OnPlayerLoadGame` it calls `GetOwningQuest()`, casts to
 `SKI_QuestBase`, and calls `OnGameReload()` on it.
 
 That matters because it only ever notifies **its own** quest — SkyUI does not
@@ -75,7 +202,7 @@ broadcast the event to other mods. So `OnGameReload()` will not fire for
 `rimmepica_MCM` unless this plugin attaches that alias script itself. Every MCM
 plugin examined here does the same thing.
 
-## SkyUI stubs
+### SkyUI stubs
 
 SkyUI ships compiled scripts only, but the Papyrus compiler needs source for
 every ancestor. `tools/pex2psc.py` reconstructs declarations straight out of
@@ -87,7 +214,7 @@ Skyrim `.pex` files are **big-endian**, unlike the plugin format. Inside a
 function record, `numInstructions` is a `uint16`, and `VariableData` type tags
 are `0` null, `1` identifier, `2` string, `3` int32, `4` float, `5` bool.
 
-## The eye glow effects
+### The eye glow effects
 
 The script stops these `VisualEffect` (`RFCT`) records on the player. The list
 was produced by walking every `RFCT` record in the three masters and keeping the
